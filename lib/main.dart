@@ -1,8 +1,7 @@
-import 'dart:developer';
-import 'package:bluetooth_app_in_flutter/bluetooth_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue/flutter_blue.dart';
-import 'package:get/get.dart';
+
+import 'device_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -11,111 +10,98 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.indigo,
-      ),
-      home: const MyHomePage(),
+      color: Colors.lightBlue,
+      home: StreamBuilder<BluetoothState>(
+          stream: FlutterBlue.instance.state,
+          initialData: BluetoothState.unknown,
+          builder: (c, snapshot) {
+            final state = snapshot.data;
+            if (state == BluetoothState.on) {
+              return const FindDevicesScreen();
+            }
+            return BluetoothOffScreen(state: state);
+          }),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({Key? key}) : super(key: key);
+class BluetoothOffScreen extends StatelessWidget {
+  const BluetoothOffScreen({Key? key, this.state}) : super(key: key);
+
+  final BluetoothState? state;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.lightBlue,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.bluetooth_disabled,
+              size: 200.0,
+              color: Colors.white54,
+            ),
+            Text(
+              'Bluetooth Adapter is ${state != null ? state.toString().substring(15) : 'not available'}.',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-
-  final bluetoothController = Get.put(BluetoothController());
+class FindDevicesScreen extends StatelessWidget {
+  const FindDevicesScreen({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bluetooth Scan App'),
-        actions: [
-          IconButton(onPressed: ()=> bluetoothController.scanDevices(context), icon: const Icon(Icons.bluetooth))
-        ],
+        title: const Text('Find Devices'),
       ),
-      body: GetBuilder<BluetoothController>(
-        init: BluetoothController(),
-        builder: (BluetoothController controller){
-          return Center(
-            child: StreamBuilder<List<ScanResult>>(
-              stream: controller.scanResults,
-              builder: (context, snapshot){
-              if(snapshot.hasData){
-                  return Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: ListView.builder(
-                      physics: const BouncingScrollPhysics(),
-                      itemCount: snapshot.data!.length,
-                      shrinkWrap: true,
-                      itemBuilder: (context, index){
-                      final data = snapshot.data![index];
-                      if(data.advertisementData.connectable){
-                        return Card(
-                          child: ListTile(
-                            onTap: () async {
-                              List<BluetoothService> services =  await data.device.discoverServices();
-                              log(services[0].toString());
-                            },
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                            // leading: const Icon(Icons.bluetooth),
-                            // title: const Icon(Icons.bluetooth),
-                            subtitle:Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Text(data.device.name),
-                                Text(data.device.id.id.toString()),
-                                Text(data.advertisementData.connectable.toString()),
-                                Row(
-                                  children: [
-                                    IconButton(
-                                        onPressed: () async => await data.device.connect(),
-                                        icon: const Icon(Icons.bluetooth_connected_outlined)),
-                                    IconButton(
-                                        onPressed: () async => await data.device.disconnect(),
-                                        icon: const Icon(Icons.remove_circle_outline)),
-                                  ],
-                                ),
-                                StreamBuilder(
-                                    stream: data.device.state,
-                                    builder: (context, _snap){
-                                      if(_snap.hasData){
-                                        return  Text(_snap.data == BluetoothDeviceState.connected ? "Connected" : "Disconnected");
-                                      }
-                                      else{
-                                        return const SizedBox();
-                                      }
-                                    }),
-
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                      else{
-                        return const SizedBox();
-                      }
-
-
-                    }),
-                  );
-                }
-              else{
-                return const Text('No Device Founded..!');
-              }
-            }),
-          );
+      body: SingleChildScrollView(
+        child: Column(
+          children: <Widget>[
+            StreamBuilder<List<ScanResult>>(
+              stream: FlutterBlue.instance.scanResults,
+              initialData: [],
+              builder: (c, snapshot) => Column(
+                children: snapshot.data!
+                    .map((result) => ListTile(
+                  title: Text(result.device.name == "" ? "No Name " : result.device.name),
+                  subtitle: Text(result.device.id.toString()),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) {
+                    result.device.connect();
+                    return DeviceScreen(device: result.device);
+                  })),
+                ))
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: StreamBuilder<bool>(
+        stream: FlutterBlue.instance.isScanning,
+        initialData: false,
+        builder: (c, snapshot) {
+          if (snapshot.data!) {
+            return FloatingActionButton(
+              child: const Icon(Icons.stop),
+              onPressed: () => FlutterBlue.instance.stopScan(),
+              backgroundColor: Colors.red,
+            );
+          } else {
+            return FloatingActionButton(
+                child: const Icon(Icons.search), onPressed: () => FlutterBlue.instance.startScan(timeout: const Duration(seconds: 4)));
+          }
         },
       ),
     );
